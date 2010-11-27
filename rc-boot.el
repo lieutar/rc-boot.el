@@ -139,10 +139,6 @@
                      (format "%S\n... caught when loading %s\n\n" e file))
                     ))))))
 
-(defvar rc-boot nil)
-(unless rc-boot
-  (setq rc-boot t)
-  (rc-boot))
 
 (provide 'rc-boot)
 ;;; rc-boot.el ends here
