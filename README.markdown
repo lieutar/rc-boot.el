@@ -7,19 +7,19 @@
 .emacs.el がウンコみたいに長くなってきてメンテナンスしきれへんわー
 ってときに、ファイルを分割したくなったりしますが、
 
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  (load "~/.emacs.d/rc/hoge.el")
-  (load "~/.emacs.d/rc/fuga.el")
-  (load "~/.emacs.d/rc/piyo.el")
-  (load "~/.emacs.d/rc/punyo.el")
-  (load "~/.emacs.d/rc/moe.el")
-  (load "~/.emacs.d/rc/gunyu.el")
-  (load "~/.emacs.d/rc/pooo.el")
-  (load "~/.emacs.d/rc/peee.el")
-    .
-    .
-    .
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    (load "~/.emacs.d/rc/hoge.el")
+    (load "~/.emacs.d/rc/fuga.el")
+    (load "~/.emacs.d/rc/piyo.el")
+    (load "~/.emacs.d/rc/punyo.el")
+    (load "~/.emacs.d/rc/moe.el")
+    (load "~/.emacs.d/rc/gunyu.el")
+    (load "~/.emacs.d/rc/pooo.el")
+    (load "~/.emacs.d/rc/peee.el")
+      .
+      .
+      .
+
   
 みたいになったりしてそれはそれでウザいし、で、どっかでエラーがでたり
 すると途中で初期化がとまってウザかったりとウキーとなったりするんで
