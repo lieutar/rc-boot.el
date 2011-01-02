@@ -28,18 +28,26 @@
 
 (defvar rc-directory    "~/.emacs.d/rc")
 
-(defvar rc-subdirs-list
-  '(
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-    "first"    ;; Definitions of symbols for configuration files.
-    "base"     ;; Basic configurations for your emacs environment.
-    "ext"      ;; Loading extensions and setup them.
-    "funcs"    ;; Definitions of commands and functions for your operation.
-    "projects" ;; Definitions for your projects.
-    "private"  ;; Definitions for your personal informations.
-    "last"     ;; Last actions of configuration.
+(defvar rc-boot-current-loading-file ())
+(defvar rc-boot-error-buffer nil)
 
-    ))
+(defmacro rc-boot-with-error-buffer (&rest form)
+  `(progn
+     (unless (buffer-live-p rc-boot-error-buffer)
+       (setq rc-boot-error-buffer
+             (get-buffer-create "*rc-boot-errors*")))
+     (save-excursion
+       (set-buffer rc-boot-error-buffer)
+       ,@form)))
+
+(defun rc-boot-error-message (form &rest vals)
+  (apply 'message form vals)
+  (rc-boot-with-error-buffer
+   (insert (apply 'format form vals) "\n")))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defvar rc-emacsen
   (mapconcat
@@ -54,18 +62,19 @@
     (number-to-string emacs-major-version))
    "-"))
 
-
 (defun rc-emacsen-match (emacsen-spec)
-  (let ((regex        (format "\\`%s\\'"
-                              (mapconcat
-                               (lambda (spec)
-                                 (mapconcat
-                                  'regexp-quote
-                                  (split-string spec "@")
-                                  ".*?"))
-                               (split-string emacsen-spec "\\.")
-                               "\\|"))))
+  (let ((regex
+         (format "\\`%s\\'"
+                 (mapconcat
+                  (lambda (spec)
+                    (mapconcat
+                     'regexp-quote
+                     (split-string spec "@")
+                     ".*?"))
+                  (split-string emacsen-spec "\\.")
+                  "\\|"))))
     (and (string-match regex rc-emacsen) t)))
+
 
 (defmacro rc-emacsen-case (&rest forms)
   `(cond ,@(mapcar
@@ -77,67 +86,133 @@
             forms)))
 
 
-(defun rc-file-loadable-p (file)
-  (when
-   (string-match "\\(\\(\\.[^./\\\\]+\\)*\\)\\.el\\'" file)
-   (or (not (match-string 2 file))
-       (rc-emacsen-match (substring (match-string 1 file) 1)))))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defvar rc-boot-loaded-file-alist    ())
 
-;;(rc-file-loadable-p "hoge.fsf-nt-23.meadow-nt-@.el")
+(defvar rc-provided
+  '())
+(defvar rc-load-path
+  '("lisp"))
 
-
-
-(defun rc-boot-file-list ()
-  (apply
-   'append
-   (mapcar
-    (lambda (rc-dir)
-      (let ((dir (expand-file-name
-                  (format "%s/%s" rc-directory rc-dir))))
-        (if (file-exists-p dir)
-            (apply
-             'append
-             (mapcar
-              (lambda (file)
-                (let ((boot-file (format "%s/%s" dir file)))
-                  (if (rc-file-loadable-p boot-file)
-                      (list boot-file))
-                  ))
-              (directory-files dir)))
-          )))
-    rc-subdirs-list))
-  )
-
-(defun rc-time< (a b)
+(defsubst rc-load:time< (a b)
   (or (< (car a) (car b))
       (and (= (car a)
               (car b))
            (< (car (cdr a))
               (car (cdr b))))))
 
-(defvar rc-boot-loaded-file-alist ())
-(defun rc-boot-is-file-new-p (file)
+(defsubst rc-load:is-file-new-p (file)
   (let ((slot (assoc file rc-boot-loaded-file-alist)))
     (if slot
-        (rc-time< 
+        (rc-load:time< 
          (cdr slot)
          (nth 5 (file-attributes file)))
       t)))
 
+(defsubst rc-load:do-file (file)
+  (if (rc-load:is-file-new-p file)
+      (condition-case e 
+          (let ((rc-boot-current-loading-file file))
+            (load-file file)
+            (setq rc-boot-loaded-file-alist
+                  (cons (cons file (current-time))
+                        rc-boot-loaded-file-alist)))
+        (error  (rc-boot-error-message
+                 "%s"
+                 (format "%S\n... caught when loading %s\n\n" e file))
+                ))))
+
+(defun rc-load:loadable-p (file)
+  (when
+   (string-match "\\(\\(\\.[^./\\\\]+\\)*\\)\\.el\\'" file)
+   (or (not (match-string 2 file))
+       (rc-emacsen-match (substring (match-string 1 file) 1)))))
+
+
+(defun rc-load:locate-library (lib)
+  (let ((result ())
+        (found  nil)
+        (rex-lib (format "^%s\\(\\.\\([^\\.]+\\)\\)?\\.el\\'"
+                         (regexp-quote lib)))
+        (rc-lp
+         (apply 'append
+                (mapcar (lambda (subdir)
+                          (let ((dir (expand-file-name subdir rc-directory)))
+                            (when (and (file-readable-p dir)
+                                       (file-directory-p dir))
+                              (list dir))))
+                        rc-load-path))))
+    (dolist (dir rc-lp)
+      (dolist (file (directory-files dir))
+        (when (string-match rex-lib file)
+          (setq found t)
+          (when (or (null (match-beginning 2))
+                    (rc-emacsen-match (match-string 2 file)))
+            (setq result (cons (expand-file-name file dir) result))))))
+    (unless found (error "Could not find library: %s" lib))
+    (reverse result)))
+
+;;(rc-load:locate-library "hoge")
+;;(rc-load:locate-library "frame")
+;;(rc-load:locate-library "font")
+
+(defun rc-load (lib)
+  (dolist (file (rc-load:locate-library lib))
+    (rc-load:do-file file)))
+
+(defun rc-require (feature)
+  (unless (member feature rc-provided)
+    (dolist (file (rc-load:locate-library (symbol-name feature)))
+      (rc-load:do-file file))
+    (setq rc-provided (cons feature rc-provided))
+    feature))
+
+(defun rc-load-directory:file-list (rc-dir)
+  (let ((dir (expand-file-name rc-dir rc-directory )))
+    (if (and (file-readable-p dir)
+             (file-directory-p dir))
+        (apply
+         'append
+         (mapcar
+          (lambda (file)
+            (let ((boot-file (expand-file-name file dir)))
+              (if (rc-load:loadable-p boot-file)
+                  (list boot-file))
+              ))
+          (directory-files dir)))
+      )))
+;;(rc-load-directory:file-list "ext")
+
+
+(defun rc-load-directory (dir)
+  (dolist (file (rc-load-directory:file-list dir))
+    (rc-load:do-file file)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defvar rc-subdirs-list
+  '(
+    "first"    ;; Definitions of symbols for configuration files.
+    "base"     ;; Basic configurations for your emacs environment.
+    "ext"      ;; Loading extensions and setup them.
+    "funcs"    ;; Definitions of commands and functions for your operation.
+    "projects" ;; Definitions for your projects.
+    "private"  ;; Definitions for your personal informations.
+    "last"     ;; Last actions of configuration.
+    ))
+
+(defun rc-boot:file-list ()
+  (apply
+   'append
+   (mapcar 'rc-load-directory:file-list
+    rc-subdirs-list)))
+
+
 (defun rc-boot ()
   (interactive)
-  (let ((now (current-time)))
-    (dolist (file (rc-boot-file-list))
-      (if (rc-boot-is-file-new-p file)
-          (condition-case e 
-              (progn
-                (load file)
-                (setq rc-boot-loaded-file-alist
-                      (cons (cons file now)
-                            rc-boot-loaded-file-alist)))
-            (error  (message
-                     (format "%S\n... caught when loading %s\n\n" e file))
-                    ))))))
+  (dolist (file (rc-boot:file-list))
+    (rc-load:do-file file)))
+
 
 
 (provide 'rc-boot)
